@@ -1,0 +1,49 @@
+# Build directories
+build/
+build-*/
+bin/
+lib/
+
+# CMake
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+
+# Qt Creator
+*.pro.user
+*.pro.user.*
+*.pyui
+*.qmlc
+*.jsc
+
+# Compiled files
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+*.lib
+*.dylib
+
+# Generated files
+ui_*.h
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+*.moc
+
+# User data (FinTrack specific)
+transactions_*.json
+users.json
+
+# OS files
+.DS_Store
+Thumbs.db
