@@ -3,82 +3,96 @@
 #include <QString>
 #include <QList>
 #include <QDateTime>
-#include <QJsonObject>
+#include <QMap>
 #include <QColor>
+#include <QtSql/QSqlDatabase>
+#include <QtSql/QSqlQuery>
+#include <QtSql/QSqlError>
 
-// ===== Структура одной транзакции =====
 struct Transaction {
-    int     id;
-    QString type;       // "expense" или "income"
+    int id;
+    int userId;
+    QString type;
     QString category;
-    double  amount;
+    double amount;
     QString comment;
     QDateTime date;
-
-    // Сериализация транзакции в JSON-объект
-    QJsonObject toJson() const;
-    // Десериализация из JSON-объекта
-    static Transaction fromJson(const QJsonObject &obj);
 };
 
-// ===== Вспомогательный класс для категорий =====
 struct CategoryInfo {
     QString name;
-    QColor  color;
-    QString icon; // unicode emoji
+    QColor color;
+    QString icon;
 };
 
-// ===== Менеджер данных: читает/пишет JSON, хранит список транзакций =====
+struct UserInfo {
+    int id;
+    QString username;
+    int role; // 0 = user, 1 = admin
+};
+
+struct GlobalStats {
+    int totalUsers;
+    int totalTransactions;
+    double totalTurnover;
+    QString topCategory;
+};
+
+struct Budget {
+    QString category;
+    double limit;
+    double current;
+};
+
 class DataManager {
 public:
     DataManager();
+    ~DataManager();
 
-    // Устанавливает текущего пользователя (меняет файл данных)
-    void setCurrentUser(const QString &username);
+    bool registerUser(const QString &username, const QString &password);
+    bool loginUser(const QString &username, const QString &password);
+    void logoutUser();
 
-    // Загружает транзакции из файла transactions_<username>.json
-    bool loadTransactions();
-
-    // Сохраняет все транзакции в файл
-    bool saveTransactions();
-
-    // Добавляет транзакцию и сохраняет файл
     void addTransaction(const Transaction &t);
-
-    // Удаляет транзакцию по id
     void removeTransaction(int id);
+    QList<Transaction> transactions() const;
 
-    // Возвращает весь список
-    const QList<Transaction>& transactions() const;
-
-    // Считает баланс (доходы - расходы)
     double balance() const;
     double totalIncome() const;
     double totalExpense() const;
 
-    // Суммы расходов по категориям (для диаграммы)
-    QMap<QString, double> expensesByCategory() const;
-    QMap<QString, double> incomeByCategory() const;
+    QMap<QString, double> expensesByCategory(const QString &range = "all") const;
+    QMap<QString, double> incomeByCategory(const QString &range = "all") const;
+    QMap<QDate, double> getDailyData(const QString &type) const; // type="balance", "expense", "income"
 
-    // Проверка/создание пользователя
-    bool registerUser(const QString &username, const QString &password);
-    bool loginUser(const QString &username, const QString &password);
-
-    // Список предустановленных категорий расходов
     static QList<CategoryInfo> expenseCategories();
-    // Список предустановленных категорий доходов
     static QList<CategoryInfo> incomeCategories();
-    // Цвет для конкретной категории
     static QColor colorForCategory(const QString &cat);
+    static QString iconForCategory(const QString &cat);
+
+    // Admin methods
+    bool isAdmin() const;
+    QList<UserInfo> getAllUsers() const;
+    bool setUserRole(int userId, int role);
+    bool deleteUser(int userId);
+    void resetUserData(int userId);
+    void generateRandomData(int userId);
+    GlobalStats getGlobalStats() const;
+
+    void addGlobalCategory(const QString &name, const QString &type, const QString &color, const QString &icon);
+    void deleteGlobalCategory(const QString &name);
+
+    // Budgets
+    void setBudget(const QString &cat, double limit);
+    QList<Budget> getBudgets() const;
 
 private:
-    QString             m_username;
-    QString             m_dataFilePath;
-    QList<Transaction>  m_transactions;
-    int                 m_nextId = 1;
+    void initDatabase();
+    QString hashPassword(const QString &password) const;
+    QDateTime getStartDate(const QString &range) const;
 
-    // Путь к файлу пользователей
-    static QString usersFilePath();
-    // Путь к файлу транзакций конкретного пользователя
-    QString transactionsFilePath() const;
+    QSqlDatabase m_db;
+    int m_currentUserId = -1;
+    QString m_currentUsername;
+    int m_currentUserRole = 0;
 };
