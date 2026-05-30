@@ -15,7 +15,7 @@ DataManager::~DataManager() {
 
 void DataManager::initDatabase() {
     m_db = QSqlDatabase::addDatabase("QSQLITE");
-    QString dbPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QString dbPath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     QDir().mkpath(dbPath);
     m_db.setDatabaseName(dbPath + "/fintrack.db");
     
