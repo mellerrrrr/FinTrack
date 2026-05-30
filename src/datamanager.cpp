@@ -15,10 +15,12 @@ DataManager::~DataManager() {
 
 void DataManager::initDatabase() {
     m_db = QSqlDatabase::addDatabase("QSQLITE");
-    m_db.setDatabaseName(QDir::currentPath() + "/fintrack.db");
+    QString dbPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(dbPath);
+    m_db.setDatabaseName(dbPath + "/fintrack.db");
     
     if (!m_db.open()) {
-        qDebug() << "Failed to open database!";
+        qDebug() << "Failed to open database! Path: " << dbPath;
         return;
     }
 

@@ -47,3 +47,8 @@ users.json
 # OS files
 .DS_Store
 Thumbs.db
+
+# Packaging outputs
+build_release/
+dist/
+dist_setup/
