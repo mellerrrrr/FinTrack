@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "addtransactiondialog.h"
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QSplitter>
@@ -56,12 +57,19 @@ void MainWindow::setupUi() {
     setupRates();
     setupCharts();
     setupTips();
+    setupLimits();
 
     m_pages->addWidget(m_dashPage);
     m_pages->addWidget(m_histPage);
     m_pages->addWidget(m_ratesPage);
     m_pages->addWidget(m_chartsPage);
     m_pages->addWidget(m_tipsPage);
+    m_pages->addWidget(m_limitsPage);
+
+    if (m_dm->isAdmin()) {
+        setupAdmin();
+        m_pages->addWidget(m_adminPage);
+    }
 
     m_rootLayout->addWidget(m_sidebar);
     m_rootLayout->addWidget(m_pages, 1);
@@ -79,7 +87,13 @@ void MainWindow::setupSidebar() {
     auto *logo = new QLabel("💰 FinTrack");
     logo->setObjectName("sidebarLogo");
     lay->addWidget(logo);
-    lay->addSpacing(32);
+    lay->addSpacing(24);
+
+    m_addTransBtnSidebar = new QPushButton("➕ Новая транзакция");
+    m_addTransBtnSidebar->setObjectName("primaryBtn");
+    connect(m_addTransBtnSidebar, &QPushButton::clicked, this, &MainWindow::onAddTransaction);
+    lay->addWidget(m_addTransBtnSidebar);
+    lay->addSpacing(24);
 
     m_navDashboard = new QPushButton("  📊  Дашборд");
     m_navDashboard->setObjectName("navBtn");
@@ -102,12 +116,24 @@ void MainWindow::setupSidebar() {
     m_navTips->setObjectName("navBtn");
     m_navTips->setCheckable(true);
 
+    m_navLimits = new QPushButton("  🎯  Лимиты");
+    m_navLimits->setObjectName("navBtn");
+    m_navLimits->setCheckable(true);
+
+    if (m_dm->isAdmin()) {
+        m_navAdmin = new QPushButton("  ⚙️  Админ-панель");
+        m_navAdmin->setObjectName("navBtn");
+        m_navAdmin->setCheckable(true);
+    }
+
     auto resetNav = [this](){
         m_navDashboard->setChecked(false);
         m_navHistory->setChecked(false);
         m_navRates->setChecked(false);
         m_navCharts->setChecked(false);
         m_navTips->setChecked(false);
+        m_navLimits->setChecked(false);
+        if (m_navAdmin) m_navAdmin->setChecked(false);
     };
 
     connect(m_navDashboard, &QPushButton::clicked, this, [=](){
@@ -140,6 +166,20 @@ void MainWindow::setupSidebar() {
         m_navTips->setChecked(true);
         refreshAll();
     });
+    connect(m_navLimits, &QPushButton::clicked, this, [=](){
+        resetNav();
+        m_pages->setCurrentIndex(5);
+        m_navLimits->setChecked(true);
+        refreshAll();
+    });
+    if (m_navAdmin) {
+        connect(m_navAdmin, &QPushButton::clicked, this, [=](){
+            resetNav();
+            m_pages->setCurrentWidget(m_adminPage);
+            m_navAdmin->setChecked(true);
+            refreshAll();
+        });
+    }
 
     auto *navContainer = new QWidget();
     auto *navLay = new QVBoxLayout(navContainer);
@@ -151,6 +191,8 @@ void MainWindow::setupSidebar() {
     navLay->addWidget(m_navRates);
     navLay->addWidget(m_navCharts);
     navLay->addWidget(m_navTips);
+    navLay->addWidget(m_navLimits);
+    if (m_navAdmin) navLay->addWidget(m_navAdmin);
     navLay->addStretch();
     
     lay->addWidget(navContainer, 1);
@@ -186,13 +228,7 @@ void MainWindow::setupDashboard() {
     m_globalRangeCombo = new QComboBox();
     m_globalRangeCombo->addItems({"Все время", "Год", "Месяц", "Неделя"});
     m_globalRangeCombo->setObjectName("timeCombo");
-    connect(m_globalRangeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [=](int idx) {
-        if(idx == 0) m_currentRange = "all";
-        else if(idx == 1) m_currentRange = "year";
-        else if(idx == 2) m_currentRange = "month";
-        else if(idx == 3) m_currentRange = "week";
-        refreshAll();
-    });
+    connect(m_globalRangeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::updateRange);
     headerRow->addWidget(m_globalRangeCombo);
     lay->addLayout(headerRow);
 
@@ -217,9 +253,28 @@ void MainWindow::setupDashboard() {
     auto *incCard = makeCard("Доходы", &m_incomeLabel, "incomeCard");
     auto *expCard = makeCard("Расходы", &m_expenseLabel, "expenseCard");
 
+    auto *limitCard = new QFrame();
+    limitCard->setObjectName("chartCard");
+    auto *limitLay = new QVBoxLayout(limitCard);
+    auto *limitTitle = new QLabel("ЛИМИТ");
+    limitTitle->setObjectName("cardTitle");
+    m_dashLimitLabel = new QLabel("Нет лимита");
+    m_dashLimitLabel->setStyleSheet("color: #f8fafc; font-size: 18px; font-weight: 800;");
+    m_dashLimitProgress = new QProgressBar();
+    m_dashLimitProgress->setFixedHeight(8);
+    m_dashLimitProgress->setTextVisible(false);
+    m_dashLimitProgress->setStyleSheet(R"(
+        QProgressBar { background: rgba(255,255,255,0.05); border: none; border-radius: 4px; }
+        QProgressBar::chunk { background: #6366f1; border-radius: 4px; }
+    )");
+    limitLay->addWidget(limitTitle);
+    limitLay->addWidget(m_dashLimitLabel);
+    limitLay->addWidget(m_dashLimitProgress);
+
     cardsRow->addWidget(balCard, 1);
     cardsRow->addWidget(incCard, 1);
     cardsRow->addWidget(expCard, 1);
+    cardsRow->addWidget(limitCard, 1);
     lay->addLayout(cardsRow);
 
     auto *bottomRow = new QHBoxLayout();
@@ -319,9 +374,17 @@ void MainWindow::setupHistory() {
     lay->setContentsMargins(32, 32, 32, 32);
     lay->setSpacing(16);
 
+    auto *headerRow = new QHBoxLayout();
     auto *header = new QLabel("История транзакций");
     header->setObjectName("pageTitle");
-    lay->addWidget(header);
+    headerRow->addWidget(header);
+    headerRow->addStretch();
+    m_histRangeCombo = new QComboBox();
+    m_histRangeCombo->addItems({"Все время", "Год", "Месяц", "Неделя"});
+    m_histRangeCombo->setObjectName("timeCombo");
+    connect(m_histRangeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::updateRange);
+    headerRow->addWidget(m_histRangeCombo);
+    lay->addLayout(headerRow);
 
     m_searchEdit = new QLineEdit();
     m_searchEdit->setPlaceholderText("🔍 Поиск по категориям или комментариям...");
@@ -415,9 +478,17 @@ void MainWindow::setupCharts() {
     lay->setContentsMargins(32, 32, 32, 32);
     lay->setSpacing(24);
 
+    auto *headerRow = new QHBoxLayout();
     auto *header = new QLabel("Аналитика");
     header->setObjectName("pageTitle");
-    lay->addWidget(header);
+    headerRow->addWidget(header);
+    headerRow->addStretch();
+    m_chartsRangeCombo = new QComboBox();
+    m_chartsRangeCombo->addItems({"Все время", "Год", "Месяц", "Неделя"});
+    m_chartsRangeCombo->setObjectName("timeCombo");
+    connect(m_chartsRangeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::updateRange);
+    headerRow->addWidget(m_chartsRangeCombo);
+    lay->addLayout(headerRow);
 
     auto *scroll = new QScrollArea();
     scroll->setWidgetResizable(true);
@@ -445,8 +516,29 @@ void MainWindow::setupCharts() {
         return card;
     };
 
-    m_expCatBarsWidget = makeChartCard("Расходы по категориям", &m_barChartView);
-    m_incCatBarsWidget = makeChartCard("Доходы по категориям", &m_incomeBarChartView);
+    auto makeCatBarsCard = [&](const QString &title, QWidget **container) {
+        auto *card = new QFrame();
+        card->setObjectName("chartCard");
+        card->setMinimumHeight(300);
+        auto *cl = new QVBoxLayout(card);
+        cl->setContentsMargins(24, 24, 24, 24);
+        
+        auto *tl = new QLabel(title);
+        tl->setStyleSheet("color: #f8fafc; font-size: 18px; font-weight: 700; margin-bottom: 15px;");
+        cl->addWidget(tl);
+
+        *container = new QWidget();
+        auto *innerLay = new QVBoxLayout(*container);
+        innerLay->setContentsMargins(0, 0, 0, 0);
+        innerLay->setSpacing(12);
+        innerLay->addStretch();
+        
+        cl->addWidget(*container, 1);
+        return card;
+    };
+
+    m_expCatBarsWidget = makeCatBarsCard("Расходы по категориям", &m_expCatBarsWidget);
+    m_incCatBarsWidget = makeCatBarsCard("Доходы по категориям", &m_incCatBarsWidget);
     contentLay->addWidget(m_expCatBarsWidget);
     contentLay->addWidget(m_incCatBarsWidget);
     contentLay->addWidget(makeChartCard("Динамика баланса", &m_lineChartView));
@@ -468,13 +560,30 @@ void MainWindow::setupTips() {
     tipsArea->setReadOnly(true);
     tipsArea->setObjectName("chartCard");
     tipsArea->setHtml(R"(
-        <h2 style='color: #7c6fff;'>5 золотых правил экономии</h2>
+        <h2 style='color: #7c6fff;'>💡 Финансовая грамотность: Базовые принципы</h2>
         <ol>
-            <li><b>Правило 50/30/20:</b> Тратьте 50% на нужды, 30% на желания и 20% откладывайте.</li>
-            <li><b>Сначала заплати себе:</b> Как только получили зарплату, сразу переведите 10% на сберегательный счет.</li>
-            <li><b>Избегайте импульсивных покупок:</b> Подождите 24 часа перед тем, как купить дорогую вещь.</li>
-            <li><b>Ведите учет:</b> Используя FinTrack, вы уже на шаг впереди!</li>
+            <li><b>Правило «50/30/20»</b><br>
+                Простой способ распределить доходы без сложных расчетов:<br>
+                <ul>
+                    <li>50% — на обязательные нужды (аренда, продукты, коммунальные услуги, связь).</li>
+                    <li>30% — на личные желания (развлечения, хобби, кафе, шоппинг).</li>
+                    <li>20% — на будущее (погашение долгов, сбережения, инвестиции).</li>
+                </ul>
+            </li><br>
+            <li><b>Сначала заплати себе</b><br>
+                Как только ты получаешь доход, первым делом отложи фиксированную сумму (например, 10%) на накопительный счет. Относись к этому как к обязательному платежу, который нельзя пропустить. Так ты создашь «подушку безопасности» незаметно для основного бюджета.
+            </li><br>
+            <li><b>Метод «3-х дней» для крупных покупок</b><br>
+                Увидел гаджет или одежду, которые «очень нужны» прямо сейчас? Подожди 72 часа. Если через три дня желание не утихло и покупка кажется рациональной — бери. Часто импульсивные траты проходят сами собой, если дать эмоциям остыть.
+            </li><br>
+            <li><b>Магия мелких трат</b><br>
+                Чашка кофе за 5 BYN каждый день — это 150 BYN в месяц или 1800 BYN в год. Мы часто не замечаем мелкие расходы, но именно они «проедают» дыру в бюджете. Попробуй неделю записывать абсолютно каждую покупку, чтобы увидеть реальную картину.
+            </li><br>
+            <li><b>Подушка безопасности</b><br>
+                Твоя цель — собрать сумму, на которую ты сможешь прожить 3–6 месяцев, если вдруг останешься без источника дохода. Это дает не только финансовую стабильность, но и психологическое спокойствие при принятии решений.
+            </li>
         </ol>
+        <p><i>Помни: Богат не тот, кто много зарабатывает, а тот, кто умеет сохранять и приумножать. Начни с малого — учет расходов в этом приложении уже первый шаг к финансовой свободе!</i></p>
     )");
     lay->addWidget(tipsArea);
 }
@@ -486,6 +595,8 @@ void MainWindow::refreshAll() {
     refreshTable();
     refreshRates();
     refreshCharts();
+    refreshAdmin();
+    refreshLimits();
 }
 
 void MainWindow::refreshBalance() {
@@ -520,11 +631,11 @@ void MainWindow::refreshChart() {
         QString cat = it.key();
 
         auto *slice = m_pieSeries->append(cat, val);
-        slice->setColor(DataManager::colorForCategory(cat));
+        slice->setColor(m_dm->colorForCategory(cat));
         slice->setBorderColor(QColor("#1a1c29"));
         slice->setBorderWidth(2);
         
-        slice->setLabel(QString("%1 %2%").arg(DataManager::iconForCategory(cat)).arg(pct, 0, 'f', 0));
+        slice->setLabel(QString("%1 %2%").arg(m_dm->iconForCategory(cat)).arg(pct, 0, 'f', 0));
         slice->setLabelVisible(true);
         slice->setLabelPosition(QPieSlice::LabelOutside);
         slice->setLabelColor(QColor("#94a3b8"));
@@ -565,9 +676,9 @@ void MainWindow::refreshCategories() {
         rl->setContentsMargins(12, 10, 12, 10);
 
         auto *dot = new QLabel("●");
-        dot->setStyleSheet(QString("color: %1; font-size: 16px;").arg(DataManager::colorForCategory(cat).name()));
+        dot->setStyleSheet(QString("color: %1; font-size: 16px;").arg(m_dm->colorForCategory(cat).name()));
 
-        auto *nameLabel = new QLabel(DataManager::iconForCategory(cat) + "  " + cat);
+        auto *nameLabel = new QLabel(m_dm->iconForCategory(cat) + "  " + cat);
         nameLabel->setStyleSheet("color: #c8c8e0; font-size: 13px;");
 
         auto *pctLabel = new QLabel(QString("%1%").arg(pct, 0, 'f', 0));
@@ -587,7 +698,19 @@ void MainWindow::refreshCategories() {
 }
 
 void MainWindow::refreshTable() {
-    const auto &list = m_dm->transactions();
+    QDateTime start = QDateTime::currentDateTime();
+    if (m_currentRange == "day") start = start.addDays(-1);
+    else if (m_currentRange == "week") start = start.addDays(-7);
+    else if (m_currentRange == "month") start = start.addMonths(-1);
+    else if (m_currentRange == "year") start = start.addYears(-1);
+    else start = QDateTime::fromMSecsSinceEpoch(0);
+
+    const auto &all_list = m_dm->transactions();
+    QList<Transaction> list;
+    for (const auto &t : all_list) {
+        if (t.date >= start) list.append(t);
+    }
+
     m_table->setRowCount(list.size());
 
     for (int i = 0; i < list.size(); ++i) {
@@ -618,39 +741,8 @@ void MainWindow::refreshRates() {
 void MainWindow::refreshCharts() {
     if (m_pages->currentIndex() != 3) return;
 
-    auto updateBar = [&](QChartView *view, bool isExpense) {
-        auto *chart = view->chart();
-        chart->removeAllSeries();
-        for(auto *axis : chart->axes()) chart->removeAxis(axis);
-
-        auto *barSeries = new QBarSeries();
-        auto *set = new QBarSet(isExpense ? "Расходы" : "Доходы");
-        set->setColor(isExpense ? QColor("#6366f1") : QColor("#10b981"));
-
-        auto data = isExpense ? m_dm->expensesByCategory(m_currentRange) : m_dm->incomeByCategory(m_currentRange);
-        QStringList categories;
-        for (auto it = data.begin(); it != data.end(); ++it) {
-            categories << it.key();
-            *set << it.value();
-        }
-        barSeries->append(set);
-        chart->addSeries(barSeries);
-
-        auto *axisX = new QBarCategoryAxis();
-        axisX->append(categories);
-        axisX->setLabelsColor(QColor("#94a3b8"));
-        chart->addAxis(axisX, Qt::AlignBottom);
-        barSeries->attachAxis(axisX);
-
-        auto *axisY = new QValueAxis();
-        axisY->setLabelsColor(QColor("#94a3b8"));
-        chart->addAxis(axisY, Qt::AlignLeft);
-        barSeries->attachAxis(axisY);
-        chart->legend()->hide();
-    };
-
-    updateBar(m_barChartView, true);
-    updateBar(m_incomeBarChartView, false);
+    refreshCatBars(m_expCatBarsWidget, true);
+    refreshCatBars(m_incCatBarsWidget, false);
 
     auto *lineChart = m_lineChartView->chart();
     lineChart->removeAllSeries();
@@ -665,6 +757,7 @@ void MainWindow::refreshCharts() {
 
     QDate today = QDate::currentDate();
     QStringList months;
+    double maxVal = 0;
     for (int i = 5; i >= 0; --i) {
         QDate d = today.addMonths(-i);
         months << d.toString("MMM");
@@ -677,6 +770,7 @@ void MainWindow::refreshCharts() {
         }
         incSeries->append(5 - i, incSum);
         expSeries->append(5 - i, expSum);
+        maxVal = std::max({maxVal, incSum, expSum});
     }
     lineChart->addSeries(incSeries);
     lineChart->addSeries(expSeries);
@@ -689,15 +783,95 @@ void MainWindow::refreshCharts() {
     expSeries->attachAxis(lAxisX);
 
     auto *lAxisY = new QValueAxis();
+    lAxisY->setRange(0, maxVal * 1.2 + 1);
     lAxisY->setLabelsColor(QColor("#94a3b8"));
+    lAxisY->setGridLineColor(QColor("#232533"));
     lineChart->addAxis(lAxisY, Qt::AlignLeft);
     incSeries->attachAxis(lAxisY);
     expSeries->attachAxis(lAxisY);
     lineChart->legend()->setVisible(true);
     lineChart->legend()->setLabelColor(QColor("#f8fafc"));
+    lineChart->legend()->setAlignment(Qt::AlignBottom);
 }
 
-void MainWindow::refreshCatBars(QWidget *container, bool isExpense) {} // Dummy for compat
+void MainWindow::refreshCatBars(QWidget *container, bool isExpense) {
+    if (!container) return;
+    auto *lay = qobject_cast<QVBoxLayout*>(container->layout());
+    if (!lay) return;
+
+    QLayoutItem *child;
+    while ((child = lay->takeAt(0)) != nullptr) {
+        if (child->widget()) child->widget()->deleteLater();
+        delete child;
+    }
+
+    auto data = isExpense ? m_dm->expensesByCategory(m_currentRange) : m_dm->incomeByCategory(m_currentRange);
+    double total = 0;
+    for (auto v : data) total += v;
+
+    if (total <= 0) {
+        auto *empty = new QLabel("Нет данных за этот период");
+        empty->setStyleSheet("color: #64748b; font-size: 14px;");
+        empty->setAlignment(Qt::AlignCenter);
+        lay->addWidget(empty);
+        lay->addStretch();
+        return;
+    }
+
+    QList<QPair<QString, double>> sorted;
+    for (auto it = data.begin(); it != data.end(); ++it) sorted.append({it.key(), it.value()});
+    std::sort(sorted.begin(), sorted.end(), [](auto &a, auto &b){ return a.second > b.second; });
+
+    for (const auto &pair : sorted) {
+        QString cat = pair.first;
+        double val = pair.second;
+        double pct = (val / total) * 100.0;
+        QColor col = m_dm->colorForCategory(cat);
+
+        auto *row = new QWidget();
+        auto *rl = new QHBoxLayout(row);
+        rl->setContentsMargins(0, 4, 0, 4);
+
+        auto *nameLabel = new QLabel(m_dm->iconForCategory(cat) + " " + cat);
+        nameLabel->setFixedWidth(160);
+        nameLabel->setStyleSheet("color: #e2e8f0; font-size: 13px; font-weight: 600;");
+
+        auto *barBg = new QFrame();
+        barBg->setFixedHeight(12);
+        barBg->setStyleSheet("background: #232533; border-radius: 6px;");
+        barBg->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        
+        auto *barBgLay = new QHBoxLayout(barBg);
+        barBgLay->setContentsMargins(0, 0, 0, 0);
+        barBgLay->setSpacing(0);
+        
+        auto *barFill = new QFrame();
+        barFill->setFixedHeight(12);
+        barFill->setStyleSheet(QString("background: %1; border-radius: 6px;").arg(col.name()));
+        barFill->setFixedWidth(qMax(6, static_cast<int>(pct * 3.0))); // Rough scaling
+        
+        barBgLay->addWidget(barFill);
+        barBgLay->addStretch();
+
+        auto *pctLabel = new QLabel(QString("%1%").arg(pct, 0, 'f', 1));
+        pctLabel->setFixedWidth(50);
+        pctLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        pctLabel->setStyleSheet(QString("color: %1; font-weight: 800; font-size: 12px;").arg(col.name()));
+
+        auto *valLabel = new QLabel(QString("%1 ₽").arg(val, 0, 'f', 0));
+        valLabel->setFixedWidth(90);
+        valLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        valLabel->setStyleSheet("color: #f8fafc; font-weight: 700; font-size: 13px;");
+
+        rl->addWidget(nameLabel);
+        rl->addWidget(barBg, 1);
+        rl->addWidget(pctLabel);
+        rl->addWidget(valLabel);
+
+        lay->addWidget(row);
+    }
+    lay->addStretch();
+}
 
 void MainWindow::onRatesReceived(QNetworkReply *reply) {
     if (reply->error() == QNetworkReply::NoError) {
@@ -747,22 +921,10 @@ void MainWindow::onSearch(const QString &text) {
 }
 
 void MainWindow::onAddTransaction() {
-    bool ok;
-    double amount = QInputDialog::getDouble(this, "Транзакция", "Сумма:", 100, 0, 1000000, 2, &ok);
-    if (ok) {
-        QStringList cats;
-        for(auto& c : DataManager::expenseCategories()) cats << c.name;
-        QString cat = QInputDialog::getItem(this, "Категория", "Выберите категорию:", cats, 0, false, &ok);
-        if (ok) {
-            Transaction t;
-            t.type = "expense";
-            t.category = cat;
-            t.amount = amount;
-            t.comment = "Добавлено вручную";
-            t.date = QDateTime::currentDateTime();
-            m_dm->addTransaction(t);
-            refreshAll();
-        }
+    AddTransactionDialog dlg(m_dm, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        m_dm->addTransaction(dlg.result());
+        refreshAll();
     }
 }
 
@@ -776,6 +938,190 @@ void MainWindow::onDeleteTransaction() {
 
 void MainWindow::resizeEvent(QResizeEvent *event) {
     QMainWindow::resizeEvent(event);
+}
+
+void MainWindow::updateRange(int idx) {
+    if(idx == 0) m_currentRange = "all";
+    else if(idx == 1) m_currentRange = "year";
+    else if(idx == 2) m_currentRange = "month";
+    else if(idx == 3) m_currentRange = "week";
+    
+    // Temporarily block signals to avoid recursive refresh calls
+    if (m_globalRangeCombo) { m_globalRangeCombo->blockSignals(true); m_globalRangeCombo->setCurrentIndex(idx); m_globalRangeCombo->blockSignals(false); }
+    if (m_histRangeCombo) { m_histRangeCombo->blockSignals(true); m_histRangeCombo->setCurrentIndex(idx); m_histRangeCombo->blockSignals(false); }
+    if (m_chartsRangeCombo) { m_chartsRangeCombo->blockSignals(true); m_chartsRangeCombo->setCurrentIndex(idx); m_chartsRangeCombo->blockSignals(false); }
+    
+    refreshAll();
+}
+
+void MainWindow::setupAdmin() {
+    m_adminPage = new QWidget();
+    auto *rootLay = new QVBoxLayout(m_adminPage);
+    rootLay->setContentsMargins(0, 0, 0, 0);
+
+    auto *scroll = new QScrollArea();
+    scroll->setWidgetResizable(true);
+    scroll->setStyleSheet("background: transparent; border: none;");
+    auto *scrollContent = new QWidget();
+    auto *lay = new QVBoxLayout(scrollContent);
+    lay->setContentsMargins(32, 32, 32, 32);
+    lay->setSpacing(24);
+
+    auto *header = new QLabel("Панель администратора");
+    header->setObjectName("pageTitle");
+    lay->addWidget(header);
+
+    // --- Статистика ---
+    auto *statsRow = new QHBoxLayout();
+    auto makeStat = [&](const QString &title, QLabel **lbl) {
+        auto *f = new QFrame();
+        f->setObjectName("chartCard");
+        auto *vl = new QVBoxLayout(f);
+        auto *tl = new QLabel(title);
+        tl->setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700;");
+        *lbl = new QLabel("0");
+        (*lbl)->setStyleSheet("color: #f8fafc; font-size: 20px; font-weight: 800;");
+        vl->addWidget(tl);
+        vl->addWidget(*lbl);
+        statsRow->addWidget(f, 1);
+    };
+    makeStat("ПОЛЬЗОВАТЕЛИ", &m_adminStatsUsers);
+    makeStat("АДМИНИСТРАТОРЫ", &m_adminStatsAdmins);
+    makeStat("ТРАНЗАКЦИИ", &m_adminStatsTrans);
+    makeStat("ОБОРОТ", &m_adminStatsTurnover);
+    lay->addLayout(statsRow);
+
+    // --- Категории ---
+    auto *catCard = new QFrame();
+    catCard->setObjectName("chartCard");
+    auto *catLay = new QVBoxLayout(catCard);
+    auto *catTitle = new QLabel("Создать глобальную категорию");
+    catTitle->setStyleSheet("color: #f8fafc; font-size: 16px; font-weight: 700;");
+    catLay->addWidget(catTitle);
+
+    auto *catForm = new QHBoxLayout();
+    
+    auto makeInput = [&](const QString &lbl, QWidget *w) {
+        auto *v = new QVBoxLayout();
+        v->setSpacing(4);
+        auto *l = new QLabel(lbl);
+        l->setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 600;");
+        v->addWidget(l);
+        v->addWidget(w);
+        catForm->addLayout(v);
+    };
+
+    m_newCatName = new QLineEdit(); m_newCatName->setPlaceholderText("Напр. Продукты"); m_newCatName->setObjectName("authInput");
+    m_newCatType = new QComboBox(); m_newCatType->addItems({"expense", "income"}); m_newCatType->setObjectName("timeCombo");
+    m_newCatColor = new QLineEdit(); m_newCatColor->setPlaceholderText("#10b981"); m_newCatColor->setObjectName("authInput");
+    m_newCatIcon = new QLineEdit(); m_newCatIcon->setPlaceholderText("🍎"); m_newCatIcon->setObjectName("authInput");
+    auto *addCatBtn = new QPushButton("Добавить"); addCatBtn->setObjectName("primaryBtn");
+    addCatBtn->setFixedWidth(120);
+    
+    makeInput("Название", m_newCatName);
+    makeInput("Тип", m_newCatType);
+    makeInput("Цвет", m_newCatColor);
+    makeInput("Иконка", m_newCatIcon);
+    
+    auto *btnV = new QVBoxLayout();
+    btnV->addSpacing(18); // Align with inputs
+    btnV->addWidget(addCatBtn);
+    catForm->addLayout(btnV);
+
+    catLay->addLayout(catForm);
+    lay->addWidget(catCard);
+
+    connect(addCatBtn, &QPushButton::clicked, this, [this](){
+        if (m_newCatName->text().isEmpty()) {
+            QMessageBox::warning(this, "Ошибка", "Введите название категории");
+            return;
+        }
+        m_dm->addGlobalCategory(m_newCatName->text(), m_newCatType->currentText(), m_newCatColor->text(), m_newCatIcon->text());
+        m_newCatName->clear();
+        m_newCatColor->clear();
+        m_newCatIcon->clear();
+        refreshAll();
+    });
+
+    // --- Таблица пользователей ---
+    auto *userTitle = new QLabel("Управление пользователями");
+    userTitle->setStyleSheet("color: #f8fafc; font-size: 16px; font-weight: 700;");
+    lay->addWidget(userTitle);
+
+    m_adminTable = new QTableWidget(0, 4);
+    m_adminTable->setObjectName("transTable");
+    m_adminTable->setHorizontalHeaderLabels({"ID", "Пользователь", "Роль", "Действия"});
+    m_adminTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_adminTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
+    m_adminTable->setColumnWidth(3, 300); // Increased width
+    m_adminTable->verticalHeader()->setDefaultSectionSize(60); // Set taller row height
+    m_adminTable->verticalHeader()->setVisible(false);
+    m_adminTable->setMinimumHeight(400);
+    lay->addWidget(m_adminTable, 1);
+
+    scroll->setWidget(scrollContent);
+    rootLay->addWidget(scroll);
+}
+
+void MainWindow::refreshAdmin() {
+    if (!m_dm->isAdmin() || !m_adminPage) return;
+
+    // Обновляем статистику
+    auto s = m_dm->getGlobalStats();
+    m_adminStatsUsers->setText(QString::number(s.totalUsers));
+    m_adminStatsAdmins->setText(QString::number(s.totalAdmins));
+    m_adminStatsTrans->setText(QString::number(s.totalTransactions));
+    m_adminStatsTurnover->setText(QString("%1 ₽").arg(s.totalTurnover, 0, 'f', 2));
+
+    // Обновляем таблицу
+    auto users = m_dm->getAllUsers();
+    m_adminTable->setRowCount(users.size());
+    for (int i = 0; i < users.size(); ++i) {
+        auto u = users[i];
+        m_adminTable->setItem(i, 0, new QTableWidgetItem(QString::number(u.id)));
+        m_adminTable->setItem(i, 1, new QTableWidgetItem(u.username));
+        m_adminTable->setItem(i, 2, new QTableWidgetItem(u.role == 1 ? "Админ" : "Пользователь"));
+        
+        auto *btnContainer = new QWidget();
+        auto *btnLay = new QHBoxLayout(btnContainer);
+        btnLay->setContentsMargins(10, 8, 10, 8); // More margins
+        btnLay->setSpacing(8);
+
+        auto *resetBtn = new QPushButton("Сброс");
+        resetBtn->setCursor(Qt::PointingHandCursor);
+        resetBtn->setFixedHeight(36); // Fixed height for button
+        resetBtn->setStyleSheet("background: #f59e0b; color: white; border: none; border-radius: 8px; padding: 4px 12px; font-size: 12px; font-weight: 700;");
+        connect(resetBtn, &QPushButton::clicked, this, [this, u](){
+            if (QMessageBox::question(this, "Сброс", "Сбросить данные пользователя " + u.username + "?") == QMessageBox::Yes) {
+                m_dm->resetUserData(u.id);
+                refreshAll();
+            }
+        });
+
+        auto *roleBtn = new QPushButton(u.role == 1 ? "Юзер" : "Админ");
+        roleBtn->setCursor(Qt::PointingHandCursor);
+        roleBtn->setFixedHeight(36);
+        roleBtn->setStyleSheet("background: #6366f1; color: white; border: none; border-radius: 8px; padding: 4px 12px; font-size: 12px; font-weight: 700;");
+        connect(roleBtn, &QPushButton::clicked, this, [this, u](){
+            m_dm->setUserRole(u.id, u.role == 1 ? 0 : 1);
+            refreshAll();
+        });
+
+        auto *delBtn = new QPushButton("Удалить");
+        delBtn->setCursor(Qt::PointingHandCursor);
+        delBtn->setFixedHeight(36);
+        delBtn->setStyleSheet("background: #ef4444; color: white; border: none; border-radius: 8px; padding: 4px 12px; font-size: 12px; font-weight: 700;");
+        connect(delBtn, &QPushButton::clicked, this, [this, u](){
+            if (QMessageBox::question(this, "Удалить?", "Удалить пользователя " + u.username + "?") == QMessageBox::Yes) {
+                if (m_dm->deleteUser(u.id)) refreshAll();
+            }
+        });
+
+        btnLay->addWidget(resetBtn);
+        btnLay->addWidget(roleBtn);
+        btnLay->addWidget(delBtn);
+        m_adminTable->setCellWidget(i, 3, btnContainer);
+    }
 }
 
 void MainWindow::applyStyle() {
@@ -805,4 +1151,113 @@ void MainWindow::applyStyle() {
         #dangerBtn { background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 12px; padding: 10px 24px; font-size: 14px; font-weight: 700; }
         QHeaderView::section { background: #151722; color: #64748b; font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 14px; border: none; border-bottom: 1px solid rgba(255,255,255,0.05); }
     )");
+}
+void MainWindow::setupLimits() {
+    m_limitsPage = new QWidget();
+    auto *lay = new QVBoxLayout(m_limitsPage);
+    lay->setContentsMargins(32, 32, 32, 32);
+    lay->setSpacing(24);
+
+    auto *header = new QLabel("Управление лимитами");
+    header->setObjectName("pageTitle");
+    lay->addWidget(header);
+
+    auto *card = new QFrame();
+    card->setObjectName("chartCard");
+    auto *cl = new QVBoxLayout(card);
+    cl->setContentsMargins(24, 24, 24, 24);
+    cl->setSpacing(20);
+
+    auto *formLay = new QHBoxLayout();
+    m_limitAmountEdit = new QLineEdit();
+    m_limitAmountEdit->setPlaceholderText("Сумма лимита");
+    m_limitAmountEdit->setObjectName("authInput");
+    
+    m_limitPeriodCombo = new QComboBox();
+    m_limitPeriodCombo->addItems({"Месяц", "Год"});
+    m_limitPeriodCombo->setObjectName("timeCombo");
+    
+    auto *saveBtn = new QPushButton("Установить лимит");
+    saveBtn->setObjectName("primaryBtn");
+    
+    formLay->addWidget(m_limitAmountEdit, 2);
+    formLay->addWidget(m_limitPeriodCombo, 1);
+    formLay->addWidget(saveBtn, 1);
+    cl->addLayout(formLay);
+
+    m_limitStatusLabel = new QLabel("Лимит не установлен");
+    m_limitStatusLabel->setStyleSheet("color: #94a3b8; font-size: 14px; font-weight: 600;");
+    cl->addWidget(m_limitStatusLabel);
+
+    m_limitProgressBar = new QProgressBar();
+    m_limitProgressBar->setFixedHeight(12);
+    m_limitProgressBar->setTextVisible(false);
+    m_limitProgressBar->setStyleSheet(R"(
+        QProgressBar { background: rgba(255,255,255,0.05); border: none; border-radius: 6px; }
+        QProgressBar::chunk { background: #6366f1; border-radius: 6px; }
+    )");
+    cl->addWidget(m_limitProgressBar);
+
+    lay->addWidget(card);
+    lay->addStretch();
+
+    connect(saveBtn, &QPushButton::clicked, this, [this](){
+        qDebug() << "Limit save button clicked";
+        QString text = m_limitAmountEdit->text().replace(",", ".");
+        bool ok;
+        double val = text.toDouble(&ok);
+        if (ok && val > 0) {
+            m_dm->setLimit(val, m_limitPeriodCombo->currentText() == "Месяц" ? "month" : "year");
+            m_lastLimitPercent = 100.0;
+            refreshAll();
+            QMessageBox::information(this, "Успех", "Лимит успешно установлен!");
+            m_limitAmountEdit->clear();
+        } else {
+            QMessageBox::warning(this, "Ошибка", "Введите корректную сумму лимита (больше 0)");
+        }
+    });
+}
+
+void MainWindow::refreshLimits() {
+    UserLimit l = m_dm->getLimit();
+    if (l.amount <= 0) {
+        if (m_limitStatusLabel) m_limitStatusLabel->setText("Лимит не установлен");
+        if (m_limitProgressBar) m_limitProgressBar->setValue(0);
+        if (m_dashLimitLabel) m_dashLimitLabel->setText("Нет лимита");
+        if (m_dashLimitProgress) m_dashLimitProgress->setValue(0);
+        return;
+    }
+
+    double spent = m_dm->getSpentInCurrentLimit();
+    double remaining = l.amount - spent;
+    int percent = (l.amount > 0) ? qMax(0, qMin(100, int((remaining / l.amount) * 100))) : 0;
+
+    QString status = QString("Остаток: %1 ₽ из %2 ₽ (%3%)")
+                        .arg(qMax(0.0, remaining), 0, 'f', 2)
+                        .arg(l.amount, 0, 'f', 2)
+                        .arg(percent);
+
+    if (m_limitStatusLabel) m_limitStatusLabel->setText(status);
+    if (m_limitProgressBar) m_limitProgressBar->setValue(percent);
+    if (m_dashLimitLabel) m_dashLimitLabel->setText(QString("%1 ₽").arg(qMax(0.0, remaining), 0, 'f', 0));
+    if (m_dashLimitProgress) m_dashLimitProgress->setValue(percent);
+
+    // Notification logic
+    double currentPercent = (remaining / l.amount) * 100.0;
+    
+    auto notify = [this](const QString &msg) {
+        QMessageBox *box = new QMessageBox(QMessageBox::Warning, "Внимание", msg, QMessageBox::Ok, this);
+        box->setStyleSheet("QLabel { color: #f8fafc; } QPushButton { background: #6366f1; color: white; padding: 8px 16px; border-radius: 8px; }");
+        box->show();
+    };
+
+    if (m_lastLimitPercent > 50 && currentPercent <= 50 && currentPercent > 10) {
+        notify("Осталось менее 50% лимита!");
+    } else if (m_lastLimitPercent > 10 && currentPercent <= 10 && currentPercent > 0) {
+        notify("Осталось менее 10% лимита! Будьте осторожны.");
+    } else if (m_lastLimitPercent > 0 && currentPercent <= 0) {
+        notify("Лимит исчерпан! Вы превысили свои бюджетные ожидания.");
+    }
+
+    m_lastLimitPercent = currentPercent;
 }

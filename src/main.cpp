@@ -15,19 +15,32 @@ int main(int argc, char *argv[]) {
     // Менеджер данных — передаётся и в AuthDialog, и в MainWindow
     DataManager dm;
 
-    // Показываем диалог авторизации
-    AuthDialog auth(&dm);
-    if (auth.exec() != QDialog::Accepted)
-        return 0; // пользователь закрыл окно
+    bool logoutRequested = true;
+    while (logoutRequested) {
+        logoutRequested = false;
 
-    QString username = auth.loggedInUser();
+        // Показываем диалог авторизации
+        AuthDialog auth(&dm);
+        if (auth.exec() != QDialog::Accepted)
+            return 0; // пользователь закрыл окно или отменил вход
 
-    // Загружаем данные авторизованного пользователя
-    dm.setCurrentUser(username);
+        QString username = auth.loggedInUser();
 
-    // Открываем главное окно
-    MainWindow win(&dm, username);
-    win.show();
+        // Загружаем данные авторизованного пользователя
+        // dm.setCurrentUser(username); // No longer needed, loginUser sets current user
 
-    return app.exec();
+        // Открываем главное окно
+        MainWindow win(&dm, username);
+        
+        // Если окно сигнализирует о выходе, ставим флаг и закрываем окно
+        QObject::connect(&win, &MainWindow::logoutRequested, [&]() {
+            logoutRequested = true;
+            win.close();
+        });
+
+        win.show();
+        app.exec(); // Ждем закрытия окна
+    }
+
+    return 0;
 }

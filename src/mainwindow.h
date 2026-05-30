@@ -19,6 +19,7 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QProgressBar>
 
 #include <QtCharts/QChartView>
 #include <QtCharts/QPieSeries>
@@ -44,6 +45,7 @@ private slots:
     void onRatesReceived(QNetworkReply *reply);
     void onConvert();
     void onSearch(const QString &text);
+    void updateRange(int idx);
 
 private:
     // UI setup
@@ -54,6 +56,8 @@ private:
     void setupRates();
     void setupCharts();
     void setupTips();
+    void setupLimits();
+    void setupAdmin();
 
     // Data refresh
     void refreshAll();
@@ -64,6 +68,8 @@ private:
     void refreshRates();
     void refreshCharts();
     void refreshCatBars(QWidget *container, bool isExpense);
+    void refreshAdmin();
+    void refreshLimits();
 
     void applyStyle();
 
@@ -86,8 +92,11 @@ private:
     QPushButton     *m_navRates        = nullptr;
     QPushButton     *m_navCharts       = nullptr;
     QPushButton     *m_navTips         = nullptr;
+    QPushButton     *m_navLimits       = nullptr;
+    QPushButton     *m_navAdmin        = nullptr;
     QLabel          *m_userLabel       = nullptr;
     QPushButton     *m_logoutBtn       = nullptr;
+    QPushButton     *m_addTransBtnSidebar = nullptr;
 
     QStackedWidget  *m_pages = nullptr;
 
@@ -96,6 +105,8 @@ private:
     QLabel          *m_balanceLabel    = nullptr;
     QLabel          *m_incomeLabel     = nullptr;
     QLabel          *m_expenseLabel    = nullptr;
+    QProgressBar    *m_dashLimitProgress = nullptr;
+    QLabel          *m_dashLimitLabel  = nullptr;
     QChartView      *m_chartView       = nullptr;
     QPieSeries      *m_pieSeries       = nullptr;
     QVBoxLayout     *m_catListLayout   = nullptr;
@@ -103,6 +114,7 @@ private:
 
     // History page
     QWidget         *m_histPage  = nullptr;
+    QComboBox       *m_histRangeCombo = nullptr;
     QLineEdit       *m_searchEdit = nullptr;
     QTableWidget    *m_table     = nullptr;
     QPushButton     *m_deleteBtn = nullptr;
@@ -119,10 +131,32 @@ private:
 
     // Charts page
     QWidget         *m_chartsPage       = nullptr;
+    QComboBox       *m_chartsRangeCombo = nullptr;
     QWidget         *m_expCatBarsWidget = nullptr;
     QWidget         *m_incCatBarsWidget = nullptr;
     QChartView      *m_lineChartView    = nullptr;
+    QChartView      *m_dailyChartView   = nullptr;
 
     // Tips page
     QWidget         *m_tipsPage = nullptr;
+
+    // Limits page
+    QWidget         *m_limitsPage = nullptr;
+    QLineEdit       *m_limitAmountEdit = nullptr;
+    QComboBox       *m_limitPeriodCombo = nullptr;
+    QProgressBar    *m_limitProgressBar = nullptr;
+    QLabel          *m_limitStatusLabel = nullptr;
+    double          m_lastLimitPercent = 100.0;
+
+    // Admin page
+    QWidget         *m_adminPage = nullptr;
+    QTableWidget    *m_adminTable = nullptr;
+    QLabel          *m_adminStatsUsers = nullptr;
+    QLabel          *m_adminStatsAdmins = nullptr;
+    QLabel          *m_adminStatsTrans = nullptr;
+    QLabel          *m_adminStatsTurnover = nullptr;
+    QLineEdit       *m_newCatName = nullptr;
+    QComboBox       *m_newCatType = nullptr;
+    QLineEdit       *m_newCatColor = nullptr;
+    QLineEdit       *m_newCatIcon = nullptr;
 };

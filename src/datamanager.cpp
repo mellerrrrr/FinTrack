@@ -45,6 +45,15 @@ void DataManager::initDatabase() {
            "type TEXT, "
            "color TEXT, "
            "icon TEXT)");
+
+    q.exec("CREATE TABLE IF NOT EXISTS user_categories ("
+           "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+           "user_id INTEGER, "
+           "name TEXT, "
+           "type TEXT, "
+           "color TEXT, "
+           "icon TEXT, "
+           "UNIQUE(user_id, name))");
            
     q.exec("CREATE TABLE IF NOT EXISTS budgets ("
            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -52,6 +61,14 @@ void DataManager::initDatabase() {
            "category TEXT, "
            "limit_amount REAL, "
            "UNIQUE(user_id, category))");
+
+    q.exec("CREATE TABLE IF NOT EXISTS user_limits ("
+           "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+           "user_id INTEGER, "
+           "amount REAL, "
+           "period TEXT, "
+           "start_date TEXT, "
+           "UNIQUE(user_id))");
 
     // Create default admin if not exists
     QSqlQuery adminCheck;
@@ -95,6 +112,50 @@ void DataManager::logoutUser() {
     m_currentUserId = -1;
     m_currentUsername = "";
     m_currentUserRole = 0;
+}
+
+void DataManager::setLimit(double amount, const QString &period) {
+    if (m_currentUserId == -1) return;
+    QSqlQuery q;
+    q.prepare("INSERT OR REPLACE INTO user_limits (user_id, amount, period, start_date) VALUES (?, ?, ?, ?)");
+    q.addBindValue(m_currentUserId);
+    q.addBindValue(amount);
+    q.addBindValue(period);
+    q.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
+    if (!q.exec()) {
+        qDebug() << "setLimit error:" << q.lastError().text();
+    }
+}
+
+UserLimit DataManager::getLimit() const {
+    if (m_currentUserId == -1) return {0, "", QDateTime()};
+    QSqlQuery q;
+    q.prepare("SELECT amount, period, start_date FROM user_limits WHERE user_id = ?");
+    q.addBindValue(m_currentUserId);
+    if (q.exec() && q.next()) {
+        return {q.value(0).toDouble(), q.value(1).toString(), QDateTime::fromString(q.value(2).toString(), Qt::ISODate)};
+    }
+    return {0, "", QDateTime()};
+}
+
+double DataManager::getSpentInCurrentLimit() const {
+    UserLimit l = getLimit();
+    if (l.amount <= 0) return 0;
+
+    QDateTime start = l.startDate;
+    // Adjust start date based on period if needed, but for now we'll just use the set date
+    // User said "на какойто срок", so we'll use the start_date from when it was set.
+
+    QSqlQuery q;
+    q.prepare("SELECT SUM(amount) FROM transactions WHERE user_id = ? AND type = 'expense' AND date >= ?");
+    q.addBindValue(m_currentUserId);
+    q.addBindValue(start.toString(Qt::ISODate));
+    if (q.exec() && q.next()) {
+        return q.value(0).toDouble();
+    } else {
+        qDebug() << "getSpentInCurrentLimit error:" << q.lastError().text();
+    }
+    return 0;
 }
 
 void DataManager::addTransaction(const Transaction &t) {
@@ -295,10 +356,13 @@ void DataManager::generateRandomData(int userId) {
 }
 
 GlobalStats DataManager::getGlobalStats() const {
-    GlobalStats s = {0, 0, 0.0, ""};
+    GlobalStats s = {0, 0, 0, 0.0, ""};
     QSqlQuery q("SELECT COUNT(*) FROM users");
     if (q.next()) s.totalUsers = q.value(0).toInt();
     
+    q.exec("SELECT COUNT(*) FROM users WHERE role=1");
+    if (q.next()) s.totalAdmins = q.value(0).toInt();
+
     q.exec("SELECT COUNT(*), SUM(amount) FROM transactions");
     if (q.next()) {
         s.totalTransactions = q.value(0).toInt();
@@ -362,8 +426,8 @@ QList<Budget> DataManager::getBudgets() const {
     return list;
 }
 
-QList<CategoryInfo> DataManager::expenseCategories() {
-    return {
+QList<CategoryInfo> DataManager::expenseCategories() const {
+    QList<CategoryInfo> list = {
         {"Продукты",     QColor("#10b981"), "🛒"},
         {"Транспорт",    QColor("#3b82f6"), "🚗"},
         {"Досуг",        QColor("#6366f1"), "🎮"},
@@ -373,26 +437,61 @@ QList<CategoryInfo> DataManager::expenseCategories() {
         {"ЖКХ",          QColor("#06b6d4"), "🏠"},
         {"Прочее",       QColor("#64748b"), "📦"}
     };
+    
+    QSqlQuery q("SELECT name, color, icon FROM global_categories WHERE type='expense'");
+    while (q.next()) list.append({q.value(0).toString(), QColor(q.value(1).toString()), q.value(2).toString()});
+    
+    QSqlQuery uq;
+    uq.prepare("SELECT name, color, icon FROM user_categories WHERE user_id=? AND type='expense'");
+    uq.addBindValue(m_currentUserId);
+    if (uq.exec()) {
+        while (uq.next()) list.append({uq.value(0).toString(), QColor(uq.value(1).toString()), uq.value(2).toString()});
+    }
+    
+    return list;
 }
 
-QList<CategoryInfo> DataManager::incomeCategories() {
-    return {
+QList<CategoryInfo> DataManager::incomeCategories() const {
+    QList<CategoryInfo> list = {
         {"Зарплата",    QColor("#10b981"), "💰"},
         {"Фриланс",     QColor("#6366f1"), "💻"},
         {"Подарок",     QColor("#f59e0b"), "🎁"},
         {"Инвестиции",  QColor("#3b82f6"), "📈"},
         {"Прочее",      QColor("#64748b"), "📦"}
     };
+
+    QSqlQuery q("SELECT name, color, icon FROM global_categories WHERE type='income'");
+    while (q.next()) list.append({q.value(0).toString(), QColor(q.value(1).toString()), q.value(2).toString()});
+    
+    QSqlQuery uq;
+    uq.prepare("SELECT name, color, icon FROM user_categories WHERE user_id=? AND type='income'");
+    uq.addBindValue(m_currentUserId);
+    if (uq.exec()) {
+        while (uq.next()) list.append({uq.value(0).toString(), QColor(uq.value(1).toString()), uq.value(2).toString()});
+    }
+    
+    return list;
 }
 
-QColor DataManager::colorForCategory(const QString &cat) {
+QColor DataManager::colorForCategory(const QString &cat) const {
     for (auto &c : expenseCategories()) if (c.name == cat) return c.color;
     for (auto &c : incomeCategories()) if (c.name == cat) return c.color;
     return QColor("#9b8ea8");
 }
 
-QString DataManager::iconForCategory(const QString &cat) {
+QString DataManager::iconForCategory(const QString &cat) const {
     for (auto &c : expenseCategories()) if (c.name == cat) return c.icon;
     for (auto &c : incomeCategories()) if (c.name == cat) return c.icon;
     return "📦";
+}
+
+void DataManager::addUserCategory(const QString &name, const QString &type, const QString &color, const QString &icon) {
+    QSqlQuery q;
+    q.prepare("INSERT OR REPLACE INTO user_categories (user_id, name, type, color, icon) VALUES (?, ?, ?, ?, ?)");
+    q.addBindValue(m_currentUserId);
+    q.addBindValue(name);
+    q.addBindValue(type);
+    q.addBindValue(color);
+    q.addBindValue(icon);
+    q.exec();
 }

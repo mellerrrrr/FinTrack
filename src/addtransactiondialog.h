@@ -12,7 +12,7 @@
 class AddTransactionDialog : public QDialog {
     Q_OBJECT
 public:
-    explicit AddTransactionDialog(QWidget *parent = nullptr);
+    explicit AddTransactionDialog(DataManager *dm, QWidget *parent = nullptr);
 
     // Возвращает заполненную транзакцию (вызывать только после accept())
     Transaction result() const;
@@ -23,6 +23,8 @@ private slots:
 
 private:
     void setupUi();
+
+    DataManager     *m_dm;
 
     QComboBox       *m_typeCombo;
     QComboBox       *m_categoryCombo;

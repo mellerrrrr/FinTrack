@@ -240,6 +240,7 @@ void AuthDialog::onRegister() {
     }
 
     if (m_dm->registerUser(user, pass)) {
+        m_dm->loginUser(user, pass);
         m_username = user;
         accept();
     } else {

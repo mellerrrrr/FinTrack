@@ -33,9 +33,16 @@ struct UserInfo {
 
 struct GlobalStats {
     int totalUsers;
+    int totalAdmins;
     int totalTransactions;
     double totalTurnover;
     QString topCategory;
+};
+
+struct UserLimit {
+    double amount;
+    QString period;
+    QDateTime startDate;
 };
 
 struct Budget {
@@ -44,7 +51,7 @@ struct Budget {
     double current;
 };
 
-class DataManager {
+class DataManager : public QObject {
 public:
     DataManager();
     ~DataManager();
@@ -65,10 +72,14 @@ public:
     QMap<QString, double> incomeByCategory(const QString &range = "all") const;
     QMap<QDate, double> getDailyData(const QString &type) const; // type="balance", "expense", "income"
 
-    static QList<CategoryInfo> expenseCategories();
-    static QList<CategoryInfo> incomeCategories();
-    static QColor colorForCategory(const QString &cat);
-    static QString iconForCategory(const QString &cat);
+    QList<CategoryInfo> expenseCategories() const;
+    QList<CategoryInfo> incomeCategories() const;
+    QColor colorForCategory(const QString &cat) const;
+    QString iconForCategory(const QString &cat) const;
+
+    void setLimit(double amount, const QString &period);
+    UserLimit getLimit() const;
+    double getSpentInCurrentLimit() const;
 
     // Admin methods
     bool isAdmin() const;
@@ -81,6 +92,7 @@ public:
 
     void addGlobalCategory(const QString &name, const QString &type, const QString &color, const QString &icon);
     void deleteGlobalCategory(const QString &name);
+    void addUserCategory(const QString &name, const QString &type, const QString &color, const QString &icon);
 
     // Budgets
     void setBudget(const QString &cat, double limit);

@@ -4,8 +4,8 @@
 
 ## Стек
 - **C++17**
-- **Qt 6** (Widgets + Charts)
-- **JSON** (QJsonDocument) — хранение данных
+- **Qt 6** (Widgets + Charts + Sql)
+- **SQLite** — хранение данных
 - **SHA-256** (QCryptographicHash) — хэширование паролей
 - Паттерн **MVC** (DataManager — модель, MainWindow — вид/контроллер)
 
@@ -67,7 +67,6 @@ FinTrack.exe
 | Добавление | Диалог с валидацией суммы > 0 |
 
 ## Дальнейшее расширение
-- Подключить **SQLite** вместо JSON (`QSqlDatabase`, `QSqlQuery`)
 - Добавить фильтрацию по периоду (день/неделя/месяц)
 - Экран бюджетов с лимитами и progress-bar
 - Экспорт в CSV/PDF

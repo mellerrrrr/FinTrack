@@ -7,7 +7,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Charts)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Charts Network Sql)
 
 set(SOURCES
     src/main.cpp
@@ -29,6 +29,8 @@ add_executable(FinTrack ${SOURCES} ${HEADERS})
 target_link_libraries(FinTrack PRIVATE
     Qt6::Widgets
     Qt6::Charts
+    Qt6::Network
+    Qt6::Sql
 )
 
 target_include_directories(FinTrack PRIVATE src)

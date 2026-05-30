@@ -6,8 +6,8 @@
 #include <QFrame>
 #include <QGraphicsDropShadowEffect>
 
-AddTransactionDialog::AddTransactionDialog(QWidget *parent)
-    : QDialog(parent)
+AddTransactionDialog::AddTransactionDialog(DataManager *dm, QWidget *parent)
+    : QDialog(parent), m_dm(dm)
 {
     setWindowTitle("Новая транзакция");
     setMinimumWidth(440);
@@ -74,7 +74,7 @@ void AddTransactionDialog::setupUi() {
     // Категория
     m_categoryCombo = new QComboBox();
     m_categoryCombo->setObjectName("styledCombo");
-    for (auto &c : DataManager::expenseCategories())
+    for (auto &c : m_dm->expenseCategories())
         m_categoryCombo->addItem(c.icon + "  " + c.name, c.name);
     makeField("Категория", m_categoryCombo);
 
@@ -180,7 +180,7 @@ void AddTransactionDialog::setupUi() {
 void AddTransactionDialog::onTypeChanged(int index) {
     m_categoryCombo->clear();
     bool isExpense = (m_typeCombo->itemData(index).toString() == "expense");
-    auto cats = isExpense ? DataManager::expenseCategories() : DataManager::incomeCategories();
+    auto cats = isExpense ? m_dm->expenseCategories() : m_dm->incomeCategories();
     for (auto &c : cats)
         m_categoryCombo->addItem(c.icon + "  " + c.name, c.name);
 }
