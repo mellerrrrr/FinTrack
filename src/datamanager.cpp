@@ -72,6 +72,21 @@ void DataManager::initDatabase() {
            "start_date TEXT, "
            "UNIQUE(user_id))");
 
+    q.exec("CREATE TABLE IF NOT EXISTS tips ("
+           "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+           "user_id INTEGER, "
+           "text TEXT, "
+           "date TEXT, "
+           "FOREIGN KEY(user_id) REFERENCES users(id))");
+
+    q.exec("CREATE TABLE IF NOT EXISTS tip_ratings ("
+           "tip_id INTEGER, "
+           "user_id INTEGER, "
+           "rating INTEGER, "
+           "PRIMARY KEY(tip_id, user_id), "
+           "FOREIGN KEY(tip_id) REFERENCES tips(id), "
+           "FOREIGN KEY(user_id) REFERENCES users(id))");
+
     // Create default admin if not exists
     QSqlQuery adminCheck;
     adminCheck.exec("SELECT id FROM users WHERE username='admin'");
@@ -81,6 +96,35 @@ void DataManager::initDatabase() {
         insertAdmin.addBindValue("admin");
         insertAdmin.addBindValue(hashPassword("admin"));
         insertAdmin.exec();
+    }
+
+    // Seed default tips if tips table is empty
+    QSqlQuery tipsCheck;
+    tipsCheck.exec("SELECT COUNT(*) FROM tips");
+    if (tipsCheck.next() && tipsCheck.value(0).toInt() == 0) {
+        int adminId = 1;
+        QSqlQuery adminIdQ;
+        adminIdQ.exec("SELECT id FROM users WHERE username='admin'");
+        if (adminIdQ.next()) {
+            adminId = adminIdQ.value(0).toInt();
+        }
+
+        QStringList defaultTips = {
+            "Правило «50/30/20»: Откладывайте 50% дохода на обязательные нужды (аренда, еда, ЖКХ), 30% на личные желания и развлечения, а 20% направляйте в сбережения или инвестиции.",
+            "Сначала заплати себе: Как только вы получаете доход, сразу же отложите 10% на накопительный счет. Воспринимайте это как обязательный платеж, который нельзя пропустить.",
+            "Метод 72 часов: Перед крупной или импульсивной покупкой подождите 3 дня. Часто желание остывает, сохраняя ваши сбережения.",
+            "Магия мелких трат: Чашка кофе с собой каждый день кажется мелочью, но за год может составить внушительную сумму. Следите за мелкими расходами, они «проедают» дыры в бюджете.",
+            "Подушка безопасности: Ваша цель — собрать резервный фонд в размере 3–6 ваших среднемесячных расходов на случай непредвиденных жизненных ситуаций."
+        };
+
+        for (const QString &tipText : defaultTips) {
+            QSqlQuery insertTip;
+            insertTip.prepare("INSERT INTO tips (user_id, text, date) VALUES (?, ?, ?)");
+            insertTip.addBindValue(adminId);
+            insertTip.addBindValue(tipText);
+            insertTip.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
+            insertTip.exec();
+        }
     }
 }
 
@@ -496,4 +540,65 @@ void DataManager::addUserCategory(const QString &name, const QString &type, cons
     q.addBindValue(color);
     q.addBindValue(icon);
     q.exec();
+}
+
+QList<Tip> DataManager::getTips() const {
+    QList<Tip> list;
+    QSqlQuery q;
+    q.prepare("SELECT t.id, t.user_id, u.username, t.text, "
+              "COALESCE(AVG(r.rating), 0.0) as avg_rating, "
+              "COUNT(r.rating) as rating_count, "
+              "COALESCE((SELECT rating FROM tip_ratings WHERE tip_id = t.id AND user_id = ?), 0) as my_rating "
+              "FROM tips t "
+              "JOIN users u ON t.user_id = u.id "
+              "LEFT JOIN tip_ratings r ON t.id = r.tip_id "
+              "GROUP BY t.id, t.user_id, u.username, t.text "
+              "ORDER BY t.id DESC");
+    q.addBindValue(m_currentUserId);
+    if (q.exec()) {
+        while (q.next()) {
+            Tip t;
+            t.id = q.value(0).toInt();
+            t.userId = q.value(1).toInt();
+            t.username = q.value(2).toString();
+            t.text = q.value(3).toString();
+            t.averageRating = q.value(4).toDouble();
+            t.ratingCount = q.value(5).toInt();
+            t.myRating = q.value(6).toInt();
+            list.append(t);
+        }
+    } else {
+        qDebug() << "getTips error:" << q.lastError().text();
+    }
+    return list;
+}
+
+void DataManager::addTip(const QString &text) {
+    if (m_currentUserId == -1 || text.trimmed().isEmpty()) return;
+    QSqlQuery q;
+    q.prepare("INSERT INTO tips (user_id, text, date) VALUES (?, ?, ?)");
+    q.addBindValue(m_currentUserId);
+    q.addBindValue(text);
+    q.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
+    if (!q.exec()) {
+        qDebug() << "addTip error:" << q.lastError().text();
+    }
+}
+
+void DataManager::rateTip(int tipId, int rating) {
+    if (m_currentUserId == -1) return;
+    QSqlQuery q;
+    if (rating <= 0) {
+        q.prepare("DELETE FROM tip_ratings WHERE tip_id = ? AND user_id = ?");
+        q.addBindValue(tipId);
+        q.addBindValue(m_currentUserId);
+    } else {
+        q.prepare("INSERT OR REPLACE INTO tip_ratings (tip_id, user_id, rating) VALUES (?, ?, ?)");
+        q.addBindValue(tipId);
+        q.addBindValue(m_currentUserId);
+        q.addBindValue(rating);
+    }
+    if (!q.exec()) {
+        qDebug() << "rateTip error:" << q.lastError().text();
+    }
 }

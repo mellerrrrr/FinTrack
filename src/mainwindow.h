@@ -20,6 +20,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QProgressBar>
+#include <QTextEdit>
 
 #include <QtCharts/QChartView>
 #include <QtCharts/QPieSeries>
@@ -70,6 +71,7 @@ private:
     void refreshCatBars(QWidget *container, bool isExpense);
     void refreshAdmin();
     void refreshLimits();
+    void refreshTips();
 
     void applyStyle();
 
@@ -139,6 +141,11 @@ private:
 
     // Tips page
     QWidget         *m_tipsPage = nullptr;
+    QScrollArea     *m_tipsScrollArea = nullptr;
+    QWidget         *m_tipsScrollContainer = nullptr;
+    QVBoxLayout     *m_tipsListLayout = nullptr;
+    QTextEdit       *m_newTipEdit = nullptr;
+    QPushButton     *m_addTipBtn = nullptr;
 
     // Limits page
     QWidget         *m_limitsPage = nullptr;

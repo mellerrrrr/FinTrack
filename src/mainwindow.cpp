@@ -551,41 +551,148 @@ void MainWindow::setupTips() {
     m_tipsPage = new QWidget();
     auto *lay = new QVBoxLayout(m_tipsPage);
     lay->setContentsMargins(32, 32, 32, 32);
+    lay->setSpacing(16);
     
     auto *header = new QLabel("Финансовые советы");
     header->setObjectName("pageTitle");
     lay->addWidget(header);
 
-    auto *tipsArea = new QTextEdit();
-    tipsArea->setReadOnly(true);
-    tipsArea->setObjectName("chartCard");
-    tipsArea->setHtml(R"(
-        <h2 style='color: #7c6fff;'>💡 Финансовая грамотность: Базовые принципы</h2>
-        <ol>
-            <li><b>Правило «50/30/20»</b><br>
-                Простой способ распределить доходы без сложных расчетов:<br>
-                <ul>
-                    <li>50% — на обязательные нужды (аренда, продукты, коммунальные услуги, связь).</li>
-                    <li>30% — на личные желания (развлечения, хобби, кафе, шоппинг).</li>
-                    <li>20% — на будущее (погашение долгов, сбережения, инвестиции).</li>
-                </ul>
-            </li><br>
-            <li><b>Сначала заплати себе</b><br>
-                Как только ты получаешь доход, первым делом отложи фиксированную сумму (например, 10%) на накопительный счет. Относись к этому как к обязательному платежу, который нельзя пропустить. Так ты создашь «подушку безопасности» незаметно для основного бюджета.
-            </li><br>
-            <li><b>Метод «3-х дней» для крупных покупок</b><br>
-                Увидел гаджет или одежду, которые «очень нужны» прямо сейчас? Подожди 72 часа. Если через три дня желание не утихло и покупка кажется рациональной — бери. Часто импульсивные траты проходят сами собой, если дать эмоциям остыть.
-            </li><br>
-            <li><b>Магия мелких трат</b><br>
-                Чашка кофе за 5 BYN каждый день — это 150 BYN в месяц или 1800 BYN в год. Мы часто не замечаем мелкие расходы, но именно они «проедают» дыру в бюджете. Попробуй неделю записывать абсолютно каждую покупку, чтобы увидеть реальную картину.
-            </li><br>
-            <li><b>Подушка безопасности</b><br>
-                Твоя цель — собрать сумму, на которую ты сможешь прожить 3–6 месяцев, если вдруг останешься без источника дохода. Это дает не только финансовую стабильность, но и психологическое спокойствие при принятии решений.
-            </li>
-        </ol>
-        <p><i>Помни: Богат не тот, кто много зарабатывает, а тот, кто умеет сохранять и приумножать. Начни с малого — учет расходов в этом приложении уже первый шаг к финансовой свободе!</i></p>
+    // Scroll Area for Tips
+    m_tipsScrollArea = new QScrollArea();
+    m_tipsScrollArea->setObjectName("catScroll");
+    m_tipsScrollArea->setWidgetResizable(true);
+    m_tipsScrollArea->setStyleSheet("background: transparent; border: none;");
+
+    m_tipsScrollContainer = new QWidget();
+    m_tipsScrollContainer->setStyleSheet("background: transparent;");
+    m_tipsListLayout = new QVBoxLayout(m_tipsScrollContainer);
+    m_tipsListLayout->setContentsMargins(0, 0, 0, 0);
+    m_tipsListLayout->setSpacing(16);
+    m_tipsScrollArea->setWidget(m_tipsScrollContainer);
+    lay->addWidget(m_tipsScrollArea, 1);
+
+    // Add Tip Form
+    auto *addTipCard = new QFrame();
+    addTipCard->setObjectName("chartCard");
+    auto *addTipLay = new QVBoxLayout(addTipCard);
+    addTipLay->setContentsMargins(20, 16, 20, 16);
+    addTipLay->setSpacing(12);
+
+    auto *addTipTitle = new QLabel("Поделиться советом");
+    addTipTitle->setStyleSheet("color: #f8fafc; font-size: 14px; font-weight: 700; text-transform: uppercase;");
+    addTipLay->addWidget(addTipTitle);
+
+    m_newTipEdit = new QTextEdit();
+    m_newTipEdit->setPlaceholderText("Напишите ваш финансовый совет здесь...");
+    m_newTipEdit->setObjectName("tipInput");
+    m_newTipEdit->setFixedHeight(80);
+    m_newTipEdit->setStyleSheet(R"(
+        #tipInput {
+            background: #232533;
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 12px;
+            color: #f8fafc;
+            font-size: 13px;
+        }
+        #tipInput:focus {
+            border: 1px solid #6366f1;
+        }
     )");
-    lay->addWidget(tipsArea);
+    addTipLay->addWidget(m_newTipEdit);
+
+    auto *btnRow = new QHBoxLayout();
+    btnRow->addStretch();
+    m_addTipBtn = new QPushButton("Опубликовать совет");
+    m_addTipBtn->setObjectName("primaryBtn");
+    connect(m_addTipBtn, &QPushButton::clicked, this, [this]() {
+        QString text = m_newTipEdit->toPlainText().trimmed();
+        if (text.isEmpty()) {
+            QMessageBox::warning(this, "Внимание", "Текст совета не может быть пустым!");
+            return;
+        }
+        m_dm->addTip(text);
+        m_newTipEdit->clear();
+        refreshAll();
+    });
+    btnRow->addWidget(m_addTipBtn);
+    addTipLay->addLayout(btnRow);
+
+    lay->addWidget(addTipCard);
+}
+
+void MainWindow::refreshTips() {
+    if (!m_tipsListLayout) return;
+
+    // Clear list
+    QLayoutItem *child;
+    while ((child = m_tipsListLayout->takeAt(0)) != nullptr) {
+        if (child->widget()) child->widget()->deleteLater();
+        delete child;
+    }
+
+    QList<Tip> tips = m_dm->getTips();
+
+    if (tips.isEmpty()) {
+        auto *emptyLabel = new QLabel("Пока нет советов. Будьте первыми, кто поделится полезным опытом!");
+        emptyLabel->setStyleSheet("color: #64748b; font-size: 14px;");
+        emptyLabel->setAlignment(Qt::AlignCenter);
+        m_tipsListLayout->addWidget(emptyLabel);
+    } else {
+        for (const auto &tip : tips) {
+            auto *card = new QFrame();
+            card->setObjectName("chartCard");
+            auto *vlay = new QVBoxLayout(card);
+            vlay->setContentsMargins(20, 18, 20, 18);
+            vlay->setSpacing(12);
+
+            auto *textLabel = new QLabel(tip.text);
+            textLabel->setWordWrap(true);
+            textLabel->setStyleSheet("color: #f8fafc; font-size: 14px; font-weight: 500; line-height: 1.45;");
+            vlay->addWidget(textLabel);
+
+            auto *infoRow = new QHBoxLayout();
+            auto *authorLabel = new QLabel(QString("👤 Автор: %1").arg(tip.username));
+            authorLabel->setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: 600;");
+
+            QString ratingStr;
+            if (tip.ratingCount > 0) {
+                ratingStr = QString("⭐ %1 (%2)").arg(tip.averageRating, 0, 'f', 1).arg(tip.ratingCount);
+            } else {
+                ratingStr = "⭐ Нет оценок";
+            }
+            auto *ratingLabel = new QLabel(ratingStr);
+            ratingLabel->setStyleSheet("color: #f59e0b; font-size: 12px; font-weight: 600;");
+
+            infoRow->addWidget(authorLabel);
+            infoRow->addWidget(ratingLabel);
+            infoRow->addStretch();
+
+            // Vote combo
+            auto *ratePrompt = new QLabel("Ваша оценка:");
+            ratePrompt->setStyleSheet("color: #64748b; font-size: 12px; font-weight: 500;");
+            auto *rateCombo = new QComboBox();
+            rateCombo->setObjectName("timeCombo");
+            rateCombo->addItems({"Не оценено", "1 ⭐", "2 ⭐", "3 ⭐", "4 ⭐", "5 ⭐"});
+            rateCombo->setFixedWidth(120);
+            
+            // Set current rating
+            rateCombo->setCurrentIndex(tip.myRating);
+
+            // Connect using activated to avoid recursive events
+            connect(rateCombo, QOverload<int>::of(&QComboBox::activated), this, [this, tip](int index) {
+                m_dm->rateTip(tip.id, index);
+                refreshAll();
+            });
+
+            infoRow->addWidget(ratePrompt);
+            infoRow->addWidget(rateCombo);
+
+            vlay->addLayout(infoRow);
+            m_tipsListLayout->addWidget(card);
+        }
+    }
+    m_tipsListLayout->addStretch();
 }
 
 void MainWindow::refreshAll() {
@@ -597,6 +704,7 @@ void MainWindow::refreshAll() {
     refreshCharts();
     refreshAdmin();
     refreshLimits();
+    refreshTips();
 }
 
 void MainWindow::refreshBalance() {

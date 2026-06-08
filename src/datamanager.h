@@ -51,6 +51,16 @@ struct Budget {
     double current;
 };
 
+struct Tip {
+    int id;
+    int userId;
+    QString username;
+    QString text;
+    double averageRating;
+    int ratingCount;
+    int myRating; // 0 if not rated
+};
+
 class DataManager : public QObject {
 public:
     DataManager();
@@ -63,6 +73,11 @@ public:
     void addTransaction(const Transaction &t);
     void removeTransaction(int id);
     QList<Transaction> transactions() const;
+
+    // Tips methods
+    QList<Tip> getTips() const;
+    void addTip(const QString &text);
+    void rateTip(int tipId, int rating);
 
     double balance() const;
     double totalIncome() const;
