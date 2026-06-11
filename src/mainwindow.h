@@ -47,6 +47,7 @@ private slots:
     void onConvert();
     void onSearch(const QString &text);
     void updateRange(int idx);
+    void onExportExcel();
 
 private:
     // UI setup
@@ -120,6 +121,7 @@ private:
     QLineEdit       *m_searchEdit = nullptr;
     QTableWidget    *m_table     = nullptr;
     QPushButton     *m_deleteBtn = nullptr;
+    QPushButton     *m_exportExcelBtn = nullptr;
 
     // Rates page
     QWidget         *m_ratesPage  = nullptr;

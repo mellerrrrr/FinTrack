@@ -1,5 +1,8 @@
 #include "mainwindow.h"
 #include "addtransactiondialog.h"
+#include <QFileDialog>
+#include <QFile>
+#include <QTextStream>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QSplitter>
@@ -404,8 +407,14 @@ void MainWindow::setupHistory() {
     m_deleteBtn->setFixedHeight(40);
     connect(m_deleteBtn, &QPushButton::clicked, this, &MainWindow::onDeleteTransaction);
 
+    m_exportExcelBtn = new QPushButton("💾 Скачать в Excel");
+    m_exportExcelBtn->setObjectName("primaryBtn");
+    m_exportExcelBtn->setFixedHeight(40);
+    connect(m_exportExcelBtn, &QPushButton::clicked, this, &MainWindow::onExportExcel);
+
     btnRow->addWidget(addBtn);
     btnRow->addWidget(m_deleteBtn);
+    btnRow->addWidget(m_exportExcelBtn);
     btnRow->addStretch();
     lay->addLayout(btnRow);
 
@@ -417,6 +426,7 @@ void MainWindow::setupHistory() {
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setShowGrid(false);
+    m_table->setFocusPolicy(Qt::NoFocus);
 
     lay->addWidget(m_table, 1);
 }
@@ -541,6 +551,7 @@ void MainWindow::setupCharts() {
     m_incCatBarsWidget = makeCatBarsCard("Доходы по категориям", &m_incCatBarsWidget);
     contentLay->addWidget(m_expCatBarsWidget);
     contentLay->addWidget(m_incCatBarsWidget);
+    contentLay->addWidget(makeChartCard("Ежедневная статистика", &m_dailyChartView));
     contentLay->addWidget(makeChartCard("Динамика баланса", &m_lineChartView));
 
     scroll->setWidget(scrollContent);
@@ -840,6 +851,32 @@ void MainWindow::refreshTable() {
     }
 }
 
+void MainWindow::onExportExcel() {
+    QString fileName = QFileDialog::getSaveFileName(this, "Сохранить историю в Excel (CSV)", "history.csv", "CSV Files (*.csv)");
+    if (fileName.isEmpty()) return;
+
+    QFile file(fileName);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "Ошибка", "Не удалось открыть файл для записи.");
+        return;
+    }
+
+    QTextStream out(&file);
+    out << "\xEF\xBB\xBF";
+    out << "Тип;Категория;Сумма;Комментарий;Дата\n";
+
+    for (int i = 0; i < m_table->rowCount(); ++i) {
+        QString type = m_table->item(i, 0)->text().remove("🔴 ").remove("🟢 ");
+        QString cat = m_table->item(i, 1)->text();
+        QString amt = m_table->item(i, 2)->text().remove("₽ ");
+        QString com = m_table->item(i, 3)->text();
+        QString date = m_table->item(i, 4)->text();
+        out << type << ";" << cat << ";" << amt << ";" << com << ";" << date << "\n";
+    }
+    file.close();
+    QMessageBox::information(this, "Успех", "История успешно сохранена в " + fileName);
+}
+
 void MainWindow::refreshRates() {
     if (m_pages->currentIndex() == 2) {
         m_netManager->get(QNetworkRequest(QUrl("https://belarusbank.by/api/kursExchange?city=Минск")));
@@ -900,6 +937,53 @@ void MainWindow::refreshCharts() {
     lineChart->legend()->setVisible(true);
     lineChart->legend()->setLabelColor(QColor("#f8fafc"));
     lineChart->legend()->setAlignment(Qt::AlignBottom);
+
+    // Refresh daily charts
+    auto *dailyChart = m_dailyChartView->chart();
+    dailyChart->removeAllSeries();
+    for (auto *axis : dailyChart->axes()) dailyChart->removeAxis(axis);
+
+    auto *dailyIncSeries = new QLineSeries();
+    dailyIncSeries->setName("Доходы");
+    dailyIncSeries->setColor(QColor("#10b981"));
+    auto *dailyExpSeries = new QLineSeries();
+    dailyExpSeries->setName("Расходы");
+    dailyExpSeries->setColor(QColor("#ef4444"));
+
+    auto incData = m_dm->getDailyData("income");
+    auto expData = m_dm->getDailyData("expense");
+
+    QStringList days;
+    double maxDaily = 0;
+    for (int i = 13; i >= 0; --i) {
+        QDate d = today.addDays(-i);
+        days << d.toString("dd.MM");
+        double dInc = incData.value(d, 0.0);
+        double dExp = expData.value(d, 0.0);
+        dailyIncSeries->append(13 - i, dInc);
+        dailyExpSeries->append(13 - i, dExp);
+        maxDaily = std::max({maxDaily, dInc, dExp});
+    }
+    dailyChart->addSeries(dailyIncSeries);
+    dailyChart->addSeries(dailyExpSeries);
+
+    auto *dAxisX = new QBarCategoryAxis();
+    dAxisX->append(days);
+    dAxisX->setLabelsColor(QColor("#94a3b8"));
+    dailyChart->addAxis(dAxisX, Qt::AlignBottom);
+    dailyIncSeries->attachAxis(dAxisX);
+    dailyExpSeries->attachAxis(dAxisX);
+
+    auto *dAxisY = new QValueAxis();
+    dAxisY->setRange(0, maxDaily * 1.2 + 1);
+    dAxisY->setLabelsColor(QColor("#94a3b8"));
+    dAxisY->setGridLineColor(QColor("#232533"));
+    dailyChart->addAxis(dAxisY, Qt::AlignLeft);
+    dailyIncSeries->attachAxis(dAxisY);
+    dailyExpSeries->attachAxis(dAxisY);
+    dailyChart->legend()->setVisible(true);
+    dailyChart->legend()->setLabelColor(QColor("#f8fafc"));
+    dailyChart->legend()->setAlignment(Qt::AlignBottom);
 }
 
 void MainWindow::refreshCatBars(QWidget *container, bool isExpense) {
@@ -1251,9 +1335,10 @@ void MainWindow::applyStyle() {
         #tabBtnActive { background: transparent; border: none; border-bottom: 3px solid #6366f1; color: #6366f1; font-size: 13px; font-weight: 800; padding: 12px; }
         #tabBtnInactive { background: transparent; border: none; border-bottom: 3px solid transparent; color: #475569; font-size: 13px; font-weight: 700; padding: 12px; }
         #timeCombo, #searchEdit { background: #232533; border: 1px solid rgba(255,255,255,0.05); border-radius: 10px; padding: 6px 12px; color: #f8fafc; font-size: 13px; }
+        #timeCombo QAbstractItemView { background: #232533; border: 1px solid rgba(255,255,255,0.05); selection-background-color: #6366f1; color: #f8fafc; outline: none; }
         #catRow { background: #232533; border-radius: 14px; border: 1px solid rgba(255,255,255,0.03); }
         #catTitle { font-size: 18px; font-weight: 700; color: #f8fafc; }
-        #transTable { background: #1a1c29; alternate-background-color: #1d1f2e; border: 1px solid rgba(255,255,255,0.05); border-radius: 18px; gridline-color: transparent; font-size: 13px; }
+        #transTable { background: #1a1c29; alternate-background-color: #1d1f2e; border: 1px solid rgba(255,255,255,0.05); border-radius: 18px; gridline-color: transparent; font-size: 13px; outline: none; }
         #transTable::item { padding: 12px 16px; border: none; }
         #primaryBtn { background: #6366f1; color: white; border: none; border-radius: 12px; padding: 10px 24px; font-size: 14px; font-weight: 700; }
         #dangerBtn { background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 12px; padding: 10px 24px; font-size: 14px; font-weight: 700; }
