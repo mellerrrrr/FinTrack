@@ -862,7 +862,10 @@ void MainWindow::onExportExcel() {
     }
 
     QTextStream out(&file);
-    out << "\xEF\xBB\xBF";
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    out.setCodec("UTF-8");
+#endif
+    out.setGenerateByteOrderMark(true);
     out << "Тип;Категория;Сумма;Комментарий;Дата\n";
 
     for (int i = 0; i < m_table->rowCount(); ++i) {
